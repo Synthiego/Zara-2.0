@@ -11,9 +11,9 @@ ANTINUKE = {
     "punishment": "ban",         # "ban" | "kick" | "strip_roles"
 }
 
-# ─── AI Moderation (Perspective API) ────────────────────────────────
+# ─── AI Moderation (API) ────────────────────────────────
 AI_MOD = {
-    "toxic_threshold": 0.75,     # 0.0–1.0, higher = less strict
+    "toxic_threshold": 1.5,     # 0.0–1.0, higher = less strict
     "nsfw_threshold": 0.80,
     "action": "delete_and_warn", # "delete" | "delete_and_warn" | "timeout"
     "timeout_minutes": 10,
