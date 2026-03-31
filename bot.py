@@ -50,6 +50,64 @@ def extract_ids(text: str) -> list[str]:
     ids = re.findall(r'\d{17,19}', text)
     return ids
 
+# ── Keyword Pre-Filter ────────────────────────────────────────────────
+# Catches common phrases before hitting Groq so they never get misread
+
+INTENT_MAP = {
+    # Timeout / mute
+    ("timeout", "mute", "shut up", "silence"): "timeout",
+    # Unmute / untimeout
+    ("unmute", "untimeout", "remove timeout", "remove mute", "unsilence", "unmuted", "un-mute", "un-timeout"): "unmute",
+    # Ban
+    ("ban", "get rid of", "remove permanently"): "ban",
+    # Kick
+    ("kick", "remove from server", "boot"): "kick",
+    # Softban
+    ("softban", "soft ban", "clean ban"): "softban",
+    # Unban
+    ("unban", "un-ban"): "unban",
+    # Warn
+    ("warn", "warning", "give warning"): "warn",
+    # Purge
+    ("purge", "clear messages", "delete messages", "clean chat", "clear chat"): "purge",
+    # Lock
+    ("lock channel", "lock this", "lock the channel"): "lock",
+    # Unlock
+    ("unlock channel", "unlock this", "unlock the channel"): "unlock",
+    # Hide
+    ("hide channel", "hide this"): "hide",
+    # Show
+    ("show channel", "unhide"): "show",
+    # Lockdown
+    ("lockdown", "lock down", "lock everything", "lock all"): "lockdown",
+    # Unlockdown
+    ("unlockdown", "unlock everything", "unlock all", "lift lockdown"): "unlockdown",
+    # Slowmode
+    ("slowmode", "slow mode", "slow down"): "slowmode",
+    # Userinfo
+    ("userinfo", "user info", "info on", "info about", "lookup", "look up", "who is", "check user"): "userinfo",
+    # Warnlog
+    ("warnlog", "warn log", "warnings for", "check warns", "show warns"): "warnlog",
+    # Clearwarns
+    ("clearwarns", "clear warns", "clear warnings", "remove warns", "delete warns"): "clearwarns",
+    # Whitelist
+    ("whitelist"): "whitelist",
+    # Unwhitelist
+    ("unwhitelist", "remove whitelist"): "unwhitelist",
+}
+
+def detect_intent(text: str) -> str | None:
+    """Check if the message matches a known action keyword before hitting Groq."""
+    lower = text.lower()
+    for keywords, action in INTENT_MAP.items():
+        if isinstance(keywords, str):
+            keywords = (keywords,)
+        for kw in keywords:
+            if kw in lower:
+                return action
+    return None
+
+
 
 async def execute_action(message: discord.Message, action_data: dict) -> str:
     """Actually execute the requested Discord action."""
@@ -255,6 +313,23 @@ async def on_message(message: discord.Message):
             query = "help"
 
         async with message.channel.typing():
+            # Pre-filter: check for known intent before hitting Groq
+            intent = detect_intent(query)
+            if intent:
+                ids = extract_ids(query)
+                target = message.mentions[0].mention if message.mentions else (ids[0] if ids else None)
+                # Extract duration if present
+                dur_match = re.search(r'(\d+)\s*(min|minute|second|sec|hour|hr)', query.lower())
+                duration = int(dur_match.group(1)) if dur_match else (10 if intent in ("timeout",) else None)
+                # Extract reason
+                reason_match = re.search(r'(?:for|reason)[:\s]+(.+)', query, re.IGNORECASE)
+                reason = reason_match.group(1).strip() if reason_match else None
+                action_data = {"action": intent, "target": target, "duration": duration, "reason": reason}
+                result = await execute_action(message, action_data)
+                if result:
+                    await message.reply(result, mention_author=False)
+                return
+
             response = await _chat(message.author.id, query, message)
             if response:
                 await message.reply(response, mention_author=False)
