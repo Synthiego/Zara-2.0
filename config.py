@@ -36,5 +36,7 @@ LOG_CHANNEL_NAME = "mod-logs"
 # Developer Mode in Discord > right-click your name > Copy User ID.
 AUTHORIZED_IDS = [
     763490845428023326,  # Replace with your Discord user ID
-    692416415327584287,  # Add more IDs here
+    692416415327584287,
+    680763657428271117,
+    660117771421614085,  # Add more IDs here
 ]
