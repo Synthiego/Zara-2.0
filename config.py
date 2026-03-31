@@ -11,9 +11,9 @@ ANTINUKE = {
     "punishment": "ban",         # "ban" | "kick" | "strip_roles"
 }
 
-# ─── AI Moderation (API) ────────────────────────────────
+# ─── AI Moderation (Perspective API) ────────────────────────────────
 AI_MOD = {
-    "toxic_threshold": 1.5,     # 0.0–1.0, higher = less strict
+    "toxic_threshold": 0.75,     # 0.0–1.0, higher = less strict
     "nsfw_threshold": 0.80,
     "action": "delete_and_warn", # "delete" | "delete_and_warn" | "timeout"
     "timeout_minutes": 10,
@@ -29,3 +29,12 @@ SPAM = {
 
 # ─── Logging ────────────────────────────────────────────────────────
 LOG_CHANNEL_NAME = "mod-logs"
+
+# ─── Authorized Admin IDs ────────────────────────────────────────────
+# Only these Discord user IDs can control Zara via chat or commands.
+# Add your own ID and any trusted admins. Get your ID by enabling
+# Developer Mode in Discord > right-click your name > Copy User ID.
+AUTHORIZED_IDS = [
+    123456789012345678,  # Replace with your Discord user ID
+    # 987654321098765432,  # Add more IDs here
+]
