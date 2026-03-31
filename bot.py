@@ -104,7 +104,7 @@ async def _chat(user_id: int, query: str) -> str:
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "llama3-8b-8192",
+        "model": "llama3-70b-8192",
         "messages": [{"role": "system", "content": ZARA_SYSTEM}] + sanitized,
         "max_tokens": 400,
         "temperature": 0.7
