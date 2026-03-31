@@ -5,6 +5,7 @@ import aiohttp
 import json
 import re
 from dotenv import load_dotenv
+from config import AUTHORIZED_IDS
 
 load_dotenv()
 
@@ -327,8 +328,8 @@ async def on_message(message: discord.Message):
     bot_mentioned = bot.user in message.mentions
 
     if "zara" in content_lower or bot_mentioned:
-        # Only admins can interact with Zara
-        if not message.author.guild_permissions.administrator:
+        # Only authorized IDs can interact with Zara
+        if message.author.id not in AUTHORIZED_IDS:
             return
 
         query = message.content
