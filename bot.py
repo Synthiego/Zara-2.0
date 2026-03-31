@@ -96,9 +96,26 @@ INTENT_MAP = {
     ("unwhitelist", "remove whitelist"): "unwhitelist",
 }
 
+# Question words that indicate the user is asking, not commanding
+QUESTION_PREFIXES = (
+    "do you think", "should i", "should we", "what do you think",
+    "would you", "can you explain", "why did", "what is", "what are",
+    "how do", "is it", "does it", "tell me about", "what happens"
+)
+
 def detect_intent(text: str) -> str | None:
-    """Check if the message matches a known action keyword before hitting Groq."""
-    lower = text.lower()
+    """Check if the message matches a known action keyword before hitting Groq.
+    Skips detection if the message is clearly a question, not a command."""
+    lower = text.lower().strip()
+
+    # If it sounds like a question, let Groq handle it conversationally
+    for prefix in QUESTION_PREFIXES:
+        if lower.startswith(prefix):
+            return None
+    # Also skip if it ends with a question mark and has no clear target
+    if lower.endswith("?"):
+        return None
+
     for keywords, action in INTENT_MAP.items():
         if isinstance(keywords, str):
             keywords = (keywords,)
@@ -303,6 +320,10 @@ async def on_message(message: discord.Message):
     bot_mentioned = bot.user in message.mentions
 
     if "zara" in content_lower or bot_mentioned:
+        # Only admins can interact with Zara
+        if not message.author.guild_permissions.administrator:
+            return
+
         query = message.content
         for variant in [f"<@!{bot.user.id}>", f"<@{bot.user.id}>",
                         "zara, ", "zara: ", "Zara, ", "Zara: "]:
