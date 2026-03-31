@@ -9,30 +9,214 @@ from dotenv import load_dotenv
 load_dotenv()
 
 intents = discord.Intents.all()
-# Zara prefix is her name — "zara ban @user" works as a command
 bot = commands.Bot(command_prefix=["zara ", "Zara "], intents=intents, help_command=None)
 
 COGS = ["cogs.antinuke", "cogs.ai_moderation", "cogs.admin"]
 
-# Conversation history per user
 conversation_history = {}
 
-ZARA_SYSTEM = """You are Zara, a smart and friendly Discord server assistant bot.
-You help server admins and members with tasks interactively.
+ZARA_SYSTEM = """You are Zara, a Discord bot assistant. You can chat AND perform real actions.
 
-When someone asks for help, list what you can do:
-"Hey! Here's what I can help you with:
-• 🔨 Moderation — ban, kick, warn, timeout, softban, purge
-• 🔒 Channels — lock, unlock, hide, show, lockdown, slowmode
-• 📋 Logs — userinfo, warnlog, clearwarns
-• 🛡️ Security — whitelist, unwhitelist, antinuke status
-• ❓ General — answer any server question
+When a user asks you to perform a moderation action, you MUST respond with ONLY a JSON object and nothing else.
+No explanation, no extra text — just the raw JSON.
 
-You can also just tell me what to do and I'll do it!
-Example: 'zara ban @user spamming' or 'zara lock this channel'"
+Action JSON format:
+{"action": "ACTION_NAME", "target": "USER_ID_OR_MENTION", "duration": MINUTES_OR_NULL, "reason": "reason or null"}
 
-When a user asks you to DO something, respond naturally confirming what you did.
-Keep replies short — under 4 sentences unless listing steps."""
+Supported actions: timeout, ban, kick, softban, warn, purge, lock, unlock, hide, show, lockdown, unlockdown, slowmode, userinfo, warnlog, clearwarns, whitelist, unwhitelist
+
+Examples:
+User: "timeout @john for 10 minutes"
+Response: {"action": "timeout", "target": "@john", "duration": 10, "reason": null}
+
+User: "ban 680763657428271117 raiding"
+Response: {"action": "ban", "target": "680763657428271117", "duration": null, "reason": "raiding"}
+
+User: "purge 20 messages"
+Response: {"action": "purge", "target": null, "duration": 20, "reason": null}
+
+User: "lock this channel"
+Response: {"action": "lock", "target": null, "duration": null, "reason": null}
+
+User: "slowmode 10 seconds"
+Response: {"action": "slowmode", "target": null, "duration": 10, "reason": null}
+
+If the user is just chatting (not requesting an action), respond normally as a friendly assistant.
+When listing help, show: timeout, ban, kick, softban, warn, purge, lock, unlock, hide, show, lockdown, slowmode, userinfo, warnlog, clearwarns, whitelist."""
+
+
+def extract_ids(text: str) -> list[str]:
+    """Extract all Discord user IDs and mentions from text."""
+    ids = re.findall(r'\d{17,19}', text)
+    return ids
+
+
+async def execute_action(message: discord.Message, action_data: dict) -> str:
+    """Actually execute the requested Discord action."""
+    action = action_data.get("action", "").lower()
+    target_raw = action_data.get("target")
+    duration = action_data.get("duration")
+    reason = action_data.get("reason") or "Requested via Zara"
+    guild = message.guild
+
+    # Resolve target member
+    member = None
+    if target_raw:
+        ids = extract_ids(str(target_raw))
+        if ids:
+            try:
+                member = guild.get_member(int(ids[0])) or await guild.fetch_member(int(ids[0]))
+            except Exception:
+                pass
+        if not member and message.mentions:
+            member = message.mentions[0]
+
+    try:
+        # ── Channel actions (no target needed) ───────────────────────
+        if action == "lock":
+            ow = message.channel.overwrites_for(guild.default_role)
+            ow.send_messages = False
+            await message.channel.edit(overwrites={guild.default_role: ow})
+            return f"🔒 Locked {message.channel.mention}."
+
+        elif action == "unlock":
+            ow = message.channel.overwrites_for(guild.default_role)
+            ow.send_messages = None
+            await message.channel.edit(overwrites={guild.default_role: ow})
+            return f"🔓 Unlocked {message.channel.mention}."
+
+        elif action == "hide":
+            ow = message.channel.overwrites_for(guild.default_role)
+            ow.view_channel = False
+            await message.channel.edit(overwrites={guild.default_role: ow})
+            return f"🙈 Hidden {message.channel.mention}."
+
+        elif action == "show":
+            ow = message.channel.overwrites_for(guild.default_role)
+            ow.view_channel = None
+            await message.channel.edit(overwrites={guild.default_role: ow})
+            return f"👁️ Unhid {message.channel.mention}."
+
+        elif action == "slowmode":
+            secs = int(duration) if duration else 0
+            await message.channel.edit(slowmode_delay=secs)
+            return f"⏱️ Slowmode set to `{secs}s` in {message.channel.mention}."
+
+        elif action == "lockdown":
+            count = 0
+            for ch in guild.text_channels:
+                try:
+                    ow = ch.overwrites_for(guild.default_role)
+                    ow.send_messages = False
+                    await ch.edit(overwrites={guild.default_role: ow})
+                    count += 1
+                except discord.Forbidden:
+                    pass
+            return f"🚨 Server locked down! Locked `{count}` channels."
+
+        elif action == "unlockdown":
+            count = 0
+            for ch in guild.text_channels:
+                try:
+                    ow = ch.overwrites_for(guild.default_role)
+                    ow.send_messages = None
+                    await ch.edit(overwrites={guild.default_role: ow})
+                    count += 1
+                except discord.Forbidden:
+                    pass
+            return f"✅ Lockdown lifted! Unlocked `{count}` channels."
+
+        elif action == "purge":
+            amount = int(duration) if duration else 10
+            # Also delete Zara's own reply message if any
+            deleted = await message.channel.purge(limit=min(amount + 1, 101))
+            return f"🗑️ Deleted `{len(deleted)}` messages."
+
+        # ── Member actions ────────────────────────────────────────────
+        if not member:
+            return f"❌ I couldn't find that user. Try mentioning them with @ or give me their exact ID."
+
+        if action == "timeout":
+            mins = int(duration) if duration else 10
+            import datetime
+            until = discord.utils.utcnow() + datetime.timedelta(minutes=mins)
+            await member.timeout(until, reason=reason)
+            return f"⏱️ Timed out {member.mention} for `{mins}` minutes. Reason: {reason}"
+
+        elif action == "ban":
+            await member.ban(reason=reason, delete_message_days=0)
+            return f"🔨 Banned {member.mention}. Reason: {reason}"
+
+        elif action == "kick":
+            await member.kick(reason=reason)
+            return f"👢 Kicked {member.mention}. Reason: {reason}"
+
+        elif action == "softban":
+            await member.ban(reason=f"[Softban] {reason}", delete_message_days=7)
+            await guild.unban(member)
+            return f"🧹 Softbanned {member.mention} — messages cleared, can rejoin."
+
+        elif action == "warn":
+            from cogs.admin import add_warn, get_warns
+            add_warn(guild.id, member.id, reason, str(message.author))
+            warns = get_warns(guild.id, member.id)
+            try:
+                await member.send(f"⚠️ You were warned in **{guild.name}**.\n**Reason:** {reason}")
+            except discord.Forbidden:
+                pass
+            return f"⚠️ Warned {member.mention}. Total warnings: `{len(warns)}`. Reason: {reason}"
+
+        elif action == "userinfo":
+            from cogs.admin import get_warns, is_whitelisted
+            warns = get_warns(guild.id, member.id)
+            created = discord.utils.format_dt(member.created_at, style="R")
+            joined = discord.utils.format_dt(member.joined_at, style="R") if member.joined_at else "Unknown"
+            roles = [r.mention for r in member.roles if r != guild.default_role]
+            embed = discord.Embed(title=f"👤 {member}", color=member.color)
+            embed.set_thumbnail(url=member.display_avatar.url)
+            embed.add_field(name="ID", value=str(member.id), inline=True)
+            embed.add_field(name="Created", value=created, inline=True)
+            embed.add_field(name="Joined", value=joined, inline=True)
+            embed.add_field(name="⚠️ Warns", value=str(len(warns)), inline=True)
+            embed.add_field(name="🛡️ Whitelisted", value="Yes" if is_whitelisted(guild.id, member.id) else "No", inline=True)
+            embed.add_field(name=f"Roles ({len(roles)})", value=" ".join(roles[:10]) or "None", inline=False)
+            await message.channel.send(embed=embed)
+            return None  # Already sent embed
+
+        elif action == "warnlog":
+            from cogs.admin import get_warns
+            warns = get_warns(guild.id, member.id)
+            embed = discord.Embed(title=f"⚠️ Warnings for {member}", color=discord.Color.yellow())
+            if not warns:
+                embed.description = "No warnings on record."
+            else:
+                for i, w in enumerate(warns, 1):
+                    embed.add_field(name=f"#{i} — {w['time'][:10]}", value=f"**Reason:** {w['reason']}\n**By:** {w['mod']}", inline=False)
+            await message.channel.send(embed=embed)
+            return None
+
+        elif action == "clearwarns":
+            from cogs.admin import clear_warns
+            clear_warns(guild.id, member.id)
+            return f"✅ Cleared all warnings for {member.mention}."
+
+        elif action == "whitelist":
+            from cogs.admin import add_whitelist
+            add_whitelist(guild.id, member.id)
+            return f"🛡️ {member.mention} whitelisted from antinuke."
+
+        elif action == "unwhitelist":
+            from cogs.admin import remove_whitelist
+            remove_whitelist(guild.id, member.id)
+            return f"✅ {member.mention} removed from whitelist."
+
+        else:
+            return f"❓ I don't know how to do `{action}` yet."
+
+    except discord.Forbidden:
+        return f"❌ I don't have permission to do that! Make sure my role is above {member.mention if member else 'the target'}."
+    except Exception as e:
+        return f"❌ Something went wrong: `{e}`"
 
 
 @bot.event
@@ -51,33 +235,32 @@ async def on_message(message: discord.Message):
     if message.author.bot or not message.guild:
         return
 
-    content_lower = message.content.lower().strip()
-    bot_mentioned = bot.user in message.mentions
-
-    # Let prefix commands (zara ban, zara kick etc) be handled by discord.py first
+    # Let real prefix commands run first
     ctx = await bot.get_context(message)
     if ctx.valid:
         await bot.invoke(ctx)
         return
 
-    # If Zara is mentioned by name or ping but it's not a known command → chat
+    content_lower = message.content.lower().strip()
+    bot_mentioned = bot.user in message.mentions
+
     if "zara" in content_lower or bot_mentioned:
         query = message.content
         for variant in [f"<@!{bot.user.id}>", f"<@{bot.user.id}>",
                         "zara, ", "zara: ", "Zara, ", "Zara: "]:
             query = query.replace(variant, "").strip()
-        # Remove leading "zara" if left over
         if query.lower().startswith("zara"):
             query = query[4:].strip()
         if not query:
             query = "help"
 
         async with message.channel.typing():
-            reply = await _chat(message.author.id, query)
-            await message.reply(reply, mention_author=False)
+            response = await _chat(message.author.id, query, message)
+            if response:
+                await message.reply(response, mention_author=False)
 
 
-async def _chat(user_id: int, query: str) -> str:
+async def _chat(user_id: int, query: str, message: discord.Message) -> str:
     groq_key = os.getenv("GROQ_API_KEY")
     if not groq_key:
         return "⚠️ No `GROQ_API_KEY` set in Railway variables!"
@@ -86,10 +269,8 @@ async def _chat(user_id: int, query: str) -> str:
         conversation_history[user_id] = []
 
     conversation_history[user_id].append({"role": "user", "content": query})
-
     history = conversation_history[user_id][-10:]
 
-    # Sanitize: strictly alternate roles, must start with user
     sanitized = []
     for msg in history:
         if sanitized and sanitized[-1]["role"] == msg["role"]:
@@ -99,43 +280,49 @@ async def _chat(user_id: int, query: str) -> str:
     if sanitized and sanitized[0]["role"] != "user":
         sanitized = sanitized[1:]
 
-    headers = {
-        "Authorization": f"Bearer {groq_key}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
     payload = {
         "model": "llama-3.3-70b-versatile",
         "messages": [{"role": "system", "content": ZARA_SYSTEM}] + sanitized,
         "max_tokens": 400,
-        "temperature": 0.7
+        "temperature": 0.3
     }
 
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 "https://api.groq.com/openai/v1/chat/completions",
-                headers=headers,
-                json=payload,
+                headers=headers, json=payload,
                 timeout=aiohttp.ClientTimeout(total=10)
             ) as resp:
                 body = await resp.text()
-                if resp.status == 401:
-                    conversation_history.pop(user_id, None)
-                    return "⚠️ Invalid Groq API key! Check `GROQ_API_KEY` in Railway."
-                if resp.status == 429:
-                    return "I'm being rate limited — try again in a sec! 😅"
                 if resp.status != 200:
                     print(f"Groq {resp.status}: {body}")
                     conversation_history.pop(user_id, None)
-                    return f"⚠️ Groq error `{resp.status}`: {body[:300]}"
+                    return f"⚠️ Groq error `{resp.status}`: {body[:200]}"
 
                 data = json.loads(body)
                 reply = data["choices"][0]["message"]["content"].strip()
+
+                # Check if Zara returned an action JSON
+                try:
+                    # Strip markdown code blocks if present
+                    clean = re.sub(r"```json|```", "", reply).strip()
+                    if clean.startswith("{"):
+                        action_data = json.loads(clean)
+                        if "action" in action_data:
+                            result = await execute_action(message, action_data)
+                            if result:
+                                conversation_history[user_id].append({"role": "assistant", "content": result})
+                            return result
+                except (json.JSONDecodeError, KeyError):
+                    pass
+
                 conversation_history[user_id].append({"role": "assistant", "content": reply})
                 return reply
 
     except aiohttp.ClientConnectorError:
-        return "⚠️ Can't reach Groq. Check Railway network settings."
+        return "⚠️ Can't reach Groq. Check Railway network."
     except Exception as e:
         print(f"Zara error: {e}")
         conversation_history.pop(user_id, None)
