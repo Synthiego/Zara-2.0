@@ -3,7 +3,7 @@ from discord.ext import commands
 from discord import app_commands
 import datetime
 import json
-from config import ANTINUKE, AI_MOD
+from config import ANTINUKE, AI_MOD, AUTHORIZED_IDS
 
 WARNS_FILE = "warns.json"
 
@@ -89,7 +89,7 @@ class Admin(commands.Cog):
 
     def admin_check():
         async def predicate(interaction: discord.Interaction):
-            return interaction.user.guild_permissions.administrator
+            return interaction.user.id in AUTHORIZED_IDS
         return app_commands.check(predicate)
 
     # ═══════════════════════════════════════════════════════════════════
@@ -105,7 +105,7 @@ class Admin(commands.Cog):
         await interaction.response.send_message(f"🔨 {member.mention} banned. Reason: {reason}", ephemeral=True)
 
     @commands.command(name="ban")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def ban_prefix(self, ctx, member: discord.Member, *, reason="No reason provided"):
         await member.ban(reason=reason)
         await ctx.send(f"🔨 {member.mention} banned. Reason: {reason}")
@@ -119,7 +119,7 @@ class Admin(commands.Cog):
         await interaction.response.send_message(f"👢 {member.mention} kicked. Reason: {reason}", ephemeral=True)
 
     @commands.command(name="kick")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def kick_prefix(self, ctx, member: discord.Member, *, reason="No reason provided"):
         await member.kick(reason=reason)
         await ctx.send(f"👢 {member.mention} kicked. Reason: {reason}")
@@ -134,7 +134,7 @@ class Admin(commands.Cog):
         await interaction.response.send_message(f"🧹 {member.mention} softbanned — messages deleted, can rejoin.", ephemeral=True)
 
     @commands.command(name="softban")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def softban_prefix(self, ctx, member: discord.Member, *, reason="No reason provided"):
         await member.ban(reason=f"[Softban] {reason}", delete_message_days=7)
         await ctx.guild.unban(member, reason="Softban - automatic unban")
@@ -153,7 +153,7 @@ class Admin(commands.Cog):
             await interaction.response.send_message(f"❌ Failed: {e}", ephemeral=True)
 
     @commands.command(name="unban")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def unban_prefix(self, ctx, user_id: str):
         try:
             user = await self.bot.fetch_user(int(user_id))
@@ -172,7 +172,7 @@ class Admin(commands.Cog):
         await interaction.response.send_message(f"⏱️ {member.mention} timed out for `{minutes}` min.", ephemeral=True)
 
     @commands.command(name="timeout")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def timeout_prefix(self, ctx, member: discord.Member, minutes: int, *, reason="No reason provided"):
         until = discord.utils.utcnow() + datetime.timedelta(minutes=minutes)
         await member.timeout(until, reason=reason)
@@ -196,7 +196,7 @@ class Admin(commands.Cog):
             pass
 
     @commands.command(name="warn")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def warn_prefix(self, ctx, member: discord.Member, *, reason="No reason provided"):
         add_warn(ctx.guild.id, member.id, reason, str(ctx.author))
         warns = get_warns(ctx.guild.id, member.id)
@@ -212,7 +212,7 @@ class Admin(commands.Cog):
         await interaction.followup.send(f"🗑️ Deleted `{len(deleted)}` messages.", ephemeral=True)
 
     @commands.command(name="purge")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def purge_prefix(self, ctx, amount: int):
         await ctx.message.delete()
         deleted = await ctx.channel.purge(limit=min(amount, 100))
@@ -229,7 +229,7 @@ class Admin(commands.Cog):
         await interaction.response.send_message(msg, ephemeral=True)
 
     @commands.command(name="slowmode")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def slowmode_prefix(self, ctx, seconds: int):
         await ctx.channel.edit(slowmode_delay=min(seconds, 21600))
         msg = f"⏱️ Slowmode set to `{seconds}s`." if seconds > 0 else "⏱️ Slowmode disabled."
@@ -249,7 +249,7 @@ class Admin(commands.Cog):
         await interaction.response.send_message("🔒 Channel locked.")
 
     @commands.command(name="lock")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def lock_prefix(self, ctx):
         overwrite = ctx.channel.overwrites_for(ctx.guild.default_role)
         overwrite.send_messages = False
@@ -266,7 +266,7 @@ class Admin(commands.Cog):
         await interaction.response.send_message("🔓 Channel unlocked.")
 
     @commands.command(name="unlock")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def unlock_prefix(self, ctx):
         overwrite = ctx.channel.overwrites_for(ctx.guild.default_role)
         overwrite.send_messages = None
@@ -283,7 +283,7 @@ class Admin(commands.Cog):
         await interaction.response.send_message("🙈 Channel hidden.", ephemeral=True)
 
     @commands.command(name="hide")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def hide_prefix(self, ctx):
         overwrite = ctx.channel.overwrites_for(ctx.guild.default_role)
         overwrite.view_channel = False
@@ -300,7 +300,7 @@ class Admin(commands.Cog):
         await interaction.response.send_message("👁️ Channel visible again.", ephemeral=True)
 
     @commands.command(name="show")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def show_prefix(self, ctx):
         overwrite = ctx.channel.overwrites_for(ctx.guild.default_role)
         overwrite.view_channel = None
@@ -325,7 +325,7 @@ class Admin(commands.Cog):
         await interaction.followup.send(f"🚨 Server lockdown! Locked `{count}` channels.", ephemeral=True)
 
     @commands.command(name="lockdown")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def lockdown_prefix(self, ctx):
         count = 0
         for channel in ctx.guild.text_channels:
@@ -357,7 +357,7 @@ class Admin(commands.Cog):
         await interaction.followup.send(f"✅ Lockdown lifted! Unlocked `{count}` channels.", ephemeral=True)
 
     @commands.command(name="unlockdown")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def unlockdown_prefix(self, ctx):
         count = 0
         for channel in ctx.guild.text_channels:
@@ -385,7 +385,7 @@ class Admin(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @commands.command(name="userinfo")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def userinfo_prefix(self, ctx, member: discord.Member = None):
         member = member or ctx.author
         embed = await self._build_userinfo(member, ctx.guild)
@@ -417,7 +417,7 @@ class Admin(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @commands.command(name="warnlog")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def warnlog_prefix(self, ctx, member: discord.Member):
         embed = self._build_warnlog(member, ctx.guild)
         await ctx.send(embed=embed)
@@ -445,7 +445,7 @@ class Admin(commands.Cog):
         await interaction.response.send_message(f"✅ Cleared all warnings for {member.mention}.", ephemeral=True)
 
     @commands.command(name="clearwarns")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def clearwarns_prefix(self, ctx, member: discord.Member):
         clear_warns(ctx.guild.id, member.id)
         await ctx.send(f"✅ Cleared all warnings for {member.mention}.")
@@ -463,7 +463,7 @@ class Admin(commands.Cog):
         await interaction.response.send_message(f"✅ {member.mention} is now whitelisted — antinuke will ignore them.", ephemeral=True)
 
     @commands.command(name="whitelist")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def whitelist_prefix(self, ctx, member: discord.Member):
         add_whitelist(ctx.guild.id, member.id)
         await ctx.send(f"✅ {member.mention} whitelisted from antinuke.")
@@ -477,7 +477,7 @@ class Admin(commands.Cog):
         await interaction.response.send_message(f"✅ {member.mention} removed from whitelist.", ephemeral=True)
 
     @commands.command(name="unwhitelist")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def unwhitelist_prefix(self, ctx, member: discord.Member):
         remove_whitelist(ctx.guild.id, member.id)
         await ctx.send(f"✅ {member.mention} removed from whitelist.")
@@ -490,7 +490,7 @@ class Admin(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @commands.command(name="whitelisted")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def whitelisted_prefix(self, ctx):
         embed = self._build_whitelist_embed(ctx.guild)
         await ctx.send(embed=embed)
@@ -517,7 +517,7 @@ class Admin(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @commands.command(name="antinuke")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def antinuke_prefix(self, ctx):
         embed = self._build_antinuke_embed()
         await ctx.send(embed=embed)
@@ -547,7 +547,7 @@ class Admin(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @commands.command(name="status")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def status_prefix(self, ctx):
         embed = discord.Embed(title="🌸 Zara — Status", color=discord.Color.blurple())
         embed.add_field(name="🤖 AI Mod Action", value=f"`{AI_MOD['action']}`", inline=True)
