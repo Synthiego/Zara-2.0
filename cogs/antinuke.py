@@ -6,7 +6,7 @@ import time
 import asyncio
 import datetime
 import json
-from config import ANTINUKE, LOG_CHANNEL_NAME
+from config import ANTINUKE, LOG_CHANNEL_NAME, AUTHORIZED_IDS
 
 
 def load_whitelist():
@@ -212,7 +212,7 @@ class AntiNuke(commands.Cog):
     # ── Test Command ──────────────────────────────────────────────────
 
     @app_commands.command(name="testnuke", description="Test the anti-nuke system — sends a simulated alert to mod-logs")
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.check(lambda i: i.user.id in AUTHORIZED_IDS)
     async def testnuke(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
@@ -247,7 +247,7 @@ class AntiNuke(commands.Cog):
         await interaction.followup.send("Test alert sent to `mod-logs`. Anti-nuke is active.", ephemeral=True)
 
     @commands.command(name="testnuke")
-    @commands.has_permissions(administrator=True)
+    @commands.check(lambda ctx: ctx.author.id in AUTHORIZED_IDS)
     async def testnuke_prefix(self, ctx):
         log = await self._get_log_channel(ctx.guild)
         if not log:
