@@ -11,13 +11,13 @@ bot = commands.Bot(command_prefix="§§UNUSED§§", intents=intents, help_comman
 
 COGS = ["cogs.antinuke", "cogs.ai_moderation", "cogs.admin"]
 
-# Conversation history per user so Zara remembers context
+# Conversation history per user
 conversation_history = {}
 
 ZARA_SYSTEM = """You are Zara, a smart and friendly Discord server assistant bot.
 You help server admins and members with tasks interactively.
 
-When someone asks for help or says "help me", always respond with a short friendly intro and then list what you can help with in a clean format, like:
+When someone asks for help or says "help", always respond with a short friendly intro and list what you can help with:
 "Hey! Here's what I can help you with:
 • 🛡️ Antinuke — enable, disable, change settings
 • 🤖 Automod — manage moderation rules
@@ -27,10 +27,9 @@ When someone asks for help or says "help me", always respond with a short friend
 
 Just tell me what you need and I'll walk you through it step by step!"
 
-When a user picks a task, ask them what they want to do step by step. Ask ONE question at a time. Be concise, warm, and helpful.
-If they ask you to do something you cannot do (like actually run code), explain clearly what they need to do manually and guide them through it.
-Keep replies under 5 sentences unless showing a list or steps.
-You are Zara — not a general AI. You are THIS server's bot assistant."""
+When a user picks a task, ask them what they want to do step by step. Ask ONE question at a time.
+Be concise, warm, and helpful. Keep replies under 5 sentences unless showing a list or steps.
+You are Zara — this server's bot assistant."""
 
 
 @bot.event
@@ -50,45 +49,51 @@ async def on_message(message: discord.Message):
         return
 
     content_lower = message.content.lower().strip()
-
-    # Respond when Zara is mentioned by name or pinged
     bot_mentioned = bot.user in message.mentions
     name_mentioned = "zara" in content_lower
 
     if name_mentioned or bot_mentioned:
-        # Build the user query (strip name/mention)
         query = message.content
-        for variant in ["<@!" + str(bot.user.id) + ">", "<@" + str(bot.user.id) + ">",
+        for variant in [f"<@!{bot.user.id}>", f"<@{bot.user.id}>",
                         "zara, ", "zara: ", "zara ", "Zara, ", "Zara: ", "Zara "]:
             query = query.replace(variant, "").strip()
         if not query or query.lower() in ("zara", ""):
             query = "help"
 
         async with message.channel.typing():
-            reply = await _chat(message.author.id, query, message.author.display_name)
+            reply = await _chat(message.author.id, query)
             await message.reply(reply, mention_author=False)
 
     await bot.process_commands(message)
 
 
-async def _chat(user_id: int, query: str, username: str) -> str:
-    """Send message to Groq with conversation memory per user."""
+async def _chat(user_id: int, query: str) -> str:
     groq_key = os.getenv("GROQ_API_KEY")
     if not groq_key:
-        return "⚠️ No `GROQ_API_KEY` found! Add it to your Railway environment variables and redeploy."
+        return "⚠️ No `GROQ_API_KEY` found! Add it to Railway variables and redeploy."
 
-    # Init history for this user
     if user_id not in conversation_history:
         conversation_history[user_id] = []
 
-    # Add user message to history
     conversation_history[user_id].append({
         "role": "user",
-        "content": f"{username}: {query}"
+        "content": query
     })
 
-    # Keep last 10 messages to avoid token limits
+    # Keep last 10 messages only
     history = conversation_history[user_id][-10:]
+
+    # Ensure messages strictly alternate (Groq requirement)
+    sanitized = []
+    for msg in history:
+        if sanitized and sanitized[-1]["role"] == msg["role"]:
+            sanitized[-1]["content"] += "\n" + msg["content"]
+        else:
+            sanitized.append({"role": msg["role"], "content": msg["content"]})
+
+    # Must start with user role
+    if sanitized and sanitized[0]["role"] != "user":
+        sanitized = sanitized[1:]
 
     headers = {
         "Authorization": f"Bearer {groq_key}",
@@ -96,7 +101,7 @@ async def _chat(user_id: int, query: str, username: str) -> str:
     }
     payload = {
         "model": "llama3-8b-8192",
-        "messages": [{"role": "system", "content": ZARA_SYSTEM}] + history,
+        "messages": [{"role": "system", "content": ZARA_SYSTEM}] + sanitized,
         "max_tokens": 400,
         "temperature": 0.7
     }
@@ -109,19 +114,22 @@ async def _chat(user_id: int, query: str, username: str) -> str:
                 json=payload,
                 timeout=aiohttp.ClientTimeout(total=10)
             ) as resp:
-                if resp.status == 401:
-                    return "⚠️ Invalid Groq API key! Check your `GROQ_API_KEY` in Railway variables."
-                if resp.status == 429:
-                    return "I'm being rate limited — give me a second and try again! 😅"
-                if resp.status != 200:
-                    error = await resp.text()
-                    print(f"Groq error {resp.status}: {error}")
-                    return f"⚠️ Groq returned error `{resp.status}`. Check Railway logs for details."
+                body = await resp.text()
 
-                data = await resp.json()
+                if resp.status == 401:
+                    conversation_history.pop(user_id, None)
+                    return "⚠️ Invalid Groq API key! Double-check `GROQ_API_KEY` in Railway."
+                if resp.status == 429:
+                    return "I'm being rate limited — try again in a second! 😅"
+                if resp.status != 200:
+                    print(f"Groq {resp.status}: {body}")
+                    conversation_history.pop(user_id, None)
+                    return f"⚠️ Groq error `{resp.status}`: {body[:300]}"
+
+                import json
+                data = json.loads(body)
                 reply = data["choices"][0]["message"]["content"].strip()
 
-                # Save Zara's reply to history too
                 conversation_history[user_id].append({
                     "role": "assistant",
                     "content": reply
@@ -130,10 +138,11 @@ async def _chat(user_id: int, query: str, username: str) -> str:
                 return reply
 
     except aiohttp.ClientConnectorError:
-        return "⚠️ Can't reach Groq's servers. Check Railway's network settings."
+        return "⚠️ Can't reach Groq. Check Railway network settings."
     except Exception as e:
-        print(f"Zara chat error: {e}")
-        return f"⚠️ Something went wrong: `{e}`"
+        print(f"Zara error: {e}")
+        conversation_history.pop(user_id, None)
+        return f"⚠️ Error: `{e}`"
 
 
 async def main():
