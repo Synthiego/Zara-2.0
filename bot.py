@@ -70,8 +70,10 @@ INTENT_MAP = {
     ("warn", "warning", "give warning"): "warn",
     # Purge
     ("purge", "clear messages", "delete messages", "clean chat", "clear chat"): "purge",
-    # Lock
-    ("lock channel", "lock this", "lock the channel"): "lock",
+    # Delete channel
+    ("delete this channel", "delete channel", "remove this channel", "remove channel"): "delete_channel",
+    # Lock - more specific to avoid false matches
+    ("lock channel", "lock this channel", "lock the channel"): "lock",
     # Unlock
     ("unlock channel", "unlock this", "unlock the channel"): "unlock",
     # Hide
@@ -171,6 +173,11 @@ async def execute_action(message: discord.Message, action_data: dict) -> str:
             ow.view_channel = None
             await message.channel.edit(overwrites={guild.default_role: ow})
             return f"👁️ Unhid {message.channel.mention}."
+
+        elif action == "delete_channel":
+            name = message.channel.name
+            await message.channel.delete(reason=f"Deleted by {message.author} via Zara")
+            return None  # Channel is gone, can't send here
 
         elif action == "slowmode":
             secs = int(duration) if duration else 0
