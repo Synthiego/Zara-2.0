@@ -38,5 +38,5 @@ AUTHORIZED_IDS = [
     763490845428023326,  # Replace with your Discord user ID
     692416415327584287,
     680763657428271117,
-    1492035202979991724,  # Add more IDs here
+    1492797169147580497,  # Add more IDs here
 ]
